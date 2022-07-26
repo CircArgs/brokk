@@ -3,11 +3,19 @@ import "core:intrinsics"
 import "core:fmt"
 import "utils"
 
+// TILE_WIDTH*TILE_HEIGHT must not exceed 16
 TILE_HEIGHT :: 4
 TILE_WIDTH :: 4
 
 Index :: distinct [2]int
 Tile_Index :: distinct [2]int
+Shape :: distinct [2]int
+Pair :: union {
+	Index,
+	Tile_Index,
+	Shape,
+}
+
 
 transmute_index_to_tile_index :: #force_inline proc(index: Index) -> Tile_Index {
 	return transmute(Tile_Index)index
@@ -31,6 +39,14 @@ Matrix :: struct($T: typeid) where intrinsics.type_is_numeric(T) {
 	data:         [][]matrix[TILE_HEIGHT, TILE_WIDTH]T,
 }
 
+shape :: proc(mat: ^Matrix($T)) -> Shape {
+	return Shape{mat.height, mat.width}
+}
+
+tile_shape :: proc(mat: ^Matrix($T)) -> Shape {
+	return Shape{mat.row_tiles, mat.column_tiles}
+}
+
 tile_from_index :: proc(index: Index) -> (
 	tile_row,
 	tile_col,
@@ -44,7 +60,7 @@ tile_from_index :: proc(index: Index) -> (
 	return
 }
 
-extract_tile_ptr_from_index :: proc(mat: ^Matrix($T), index: Tile_Index) ->
+extract_tile_ptr_from_index :: proc(mat: ^Matrix($T), index: Index) ->
 	^matrix[TILE_HEIGHT, TILE_WIDTH]T {
 	tile_row, tile_col, inner_row, inner_col := tile_from_index(index)
 	return &mat.data[tile_row][tile_col]
@@ -53,11 +69,15 @@ extract_tile_ptr_from_index :: proc(mat: ^Matrix($T), index: Tile_Index) ->
 extract_tile_from_index :: proc(mat: ^Matrix($T), index: Index) ->
 	matrix[TILE_HEIGHT, TILE_WIDTH]T {
 	tile_row, tile_col, inner_row, inner_col := tile_from_index(index)
-	return mat.data[tile_row][tile_col]^
+	return mat.data[tile_row][tile_col]
 }
 extract_tile_ptr_from_tile_index :: proc(mat: ^Matrix($T), index: Tile_Index) ->
 	^matrix[TILE_HEIGHT, TILE_WIDTH]T {
 	return &mat.data[index.x][index.y]
+}
+extract_tile_from_tile_index :: proc(mat: ^Matrix($T), index: Tile_Index) ->
+	matrix[TILE_HEIGHT, TILE_WIDTH]T {
+	return mat.data[index.x][index.y]
 }
 extract_tile_ptr :: proc {
 	extract_tile_ptr_from_index,
@@ -68,10 +88,6 @@ extract_tile :: proc {
 	extract_tile_from_tile_index,
 }
 
-extract_tile_from_tile_index :: proc(mat: ^Matrix($T), index: Tile_Index) ->
-	matrix[TILE_HEIGHT, TILE_WIDTH]T {
-	return mat.data[index.x][index.y]
-}
 extract_element_ptr :: proc(mat: ^Matrix($T), index: Index) -> ^T {
 	assert(index.x >= 0 && index.y >= 0 && index.x < mat.height && index.y < mat.width)
 	tile_row, tile_col, inner_row, inner_col := tile_from_index(index)
@@ -139,11 +155,11 @@ new_matrix :: proc {
 }
 
 multiply :: proc(left, right: ^Matrix($T)) -> ^Matrix(T) {
-	assert(left.width == right.height)
+	assert(left.column_tiles == right.row_tiles)
 	ret := new_matrix(T, left.height, right.width)
-	for index_tile_a in 0 ..< left.width {
-		for index_tile_b in 0 ..< right.height {
-			for shared_dim in 0 ..< right.width {
+	for index_tile_a in 0 ..< left.row_tiles {
+		for index_tile_b in 0 ..< right.column_tiles {
+			for shared_dim in 0 ..< right.row_tiles {
 				extract_tile_ptr(ret, Tile_Index{index_tile_a, index_tile_b})^ =
 					extract_tile(ret, Tile_Index{index_tile_a, index_tile_b}) +
 					extract_tile(left, Tile_Index{index_tile_a, shared_dim}) *
