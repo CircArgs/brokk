@@ -1,11 +1,14 @@
 package brokk
 import "core:intrinsics"
 import "core:fmt"
+import "core:math"
 import "utils"
 
 // TILE_WIDTH*TILE_HEIGHT must not exceed 16
 TILE_HEIGHT :: 4
 TILE_WIDTH :: 4
+
+#assert(TILE_WIDTH == TILE_HEIGHT && TILE_HEIGHT * TILE_WIDTH <= 16)
 
 Index :: distinct [2]int
 Tile_Index :: distinct [2]int
@@ -103,6 +106,36 @@ extract_element_ptr :: proc(mat: ^Matrix($T), index: Index) -> ^T {
 extract_element :: proc(mat: ^Matrix($T), index: Index) -> T {
 	return extract_element_ptr(mat, index)^
 }
+
+to_slice :: proc(mat: ^Matrix($T)) -> (ret: [][]T) {
+	ret = utils.make_2d_slice(mat.height, mat.width, T)
+	for row, r in mat.data {
+		for col, c in row {
+			for tr in 0 ..< min(TILE_HEIGHT, mat.height - TILE_HEIGHT * r) {
+				ret_row := tr + TILE_HEIGHT * r
+				s := c * TILE_WIDTH
+				e := min(TILE_WIDTH + s, mat.width)
+				temp := transpose(col)[tr]
+				copy(ret[ret_row][s:e], temp[:])
+			}
+		}
+	}
+	return
+}
+
+print_matrix :: proc(mat: ^Matrix($T)) {
+	fmt.println()
+	temp := to_slice(mat)
+	for row in temp {
+		fmt.println(row)
+	}
+	utils.delete_2d_slice(temp)
+	fmt.println()
+}
+/* to_string :: proc(mat: ^Matrix($T), allocator:= context.allocator)->string { */
+/*   for  */
+/* } */
+
 
 replace_element :: proc(mat: ^Matrix($T), index: Index, value: T) {
 	extract_element_ptr(mat, index)^ = value

@@ -1,6 +1,8 @@
 package brokk
 import "core:fmt"
-
+import "core:strings"
+import "core:c/libc"
+import "core:slice"
 main :: proc() {
 	a := [][]f32{
 		{1, 2, 3, 4, 5},
@@ -17,5 +19,12 @@ main :: proc() {
 	}
 	x := new_matrix(a)
 	y := new_matrix(b)
-	fmt.println(multiply(x, y))
+	/* b := matrix[2, 2]f32 { */
+	/* 	1, 2,  */
+	/* 	3, 4,  */
+	/* } */
+	/* fmt.println(transpose(b)[0]) */
+	print_matrix(x)
+	print_matrix(y)
+	print_matrix(multiply(x, y))
 }
