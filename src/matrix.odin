@@ -132,10 +132,6 @@ print_matrix :: proc(mat: ^Matrix($T)) {
 	utils.delete_2d_slice(temp)
 	fmt.println()
 }
-/* to_string :: proc(mat: ^Matrix($T), allocator:= context.allocator)->string { */
-/*   for  */
-/* } */
-
 
 replace_element :: proc(mat: ^Matrix($T), index: Index, value: T) {
 	extract_element_ptr(mat, index)^ = value
@@ -158,7 +154,46 @@ zeros :: proc($T: typeid, height, width: int) -> ^Matrix(T) {
 	return mat
 }
 
-filled :: proc(height, width: int, value: $T) -> ^Matrix(T) {
+filled_const :: proc(height, width: int, value: $T) -> ^Matrix(T) {
+	mat := zeros(T, height, width)
+	for i in 0 ..< mat.height {
+		for j in 0 ..< mat.width {
+			index := Index{i, j}
+			replace_element(mat, index, value)
+		}
+	}
+
+	return mat
+}
+
+apply_on_elements :: proc(f: proc(x: $T, index: Index) -> T, mat: ^Matrix(T)) -> ^Matrix(T) {
+	for i in 0 ..< mat.height {
+		for j in 0 ..< mat.width {
+			index := Index{i, j}
+			replace_element(mat, index, f(extract_element(mat, index), index))
+		}
+	}
+	return mat
+}
+
+apply_on_tiles :: proc(
+	f: proc(t: matrix[TILE_HEIGHT, TILE_WIDTH]$T, index: Tile_Index) ->
+		Tmatrix[TILE_HEIGHT, TILE_WIDTH],
+	T,
+	mat: ^Matrix(T),
+) -> ^Matrix(T) {
+	for row, i in mat.data {
+		for tile, j in row {
+			index := Tile_Index{i, j}
+			extract_tile_ptr(mat, index)^ = f(extract_tile(mat, index), index)
+		}
+	}
+	return mat
+}
+
+apply::proc{apply_on_elements, apply_on_tiles}
+
+filled_const :: proc(height, width: int, value: $T) -> ^Matrix(T) {
 	mat := zeros(T, height, width)
 	for r in 0 ..< height {
 		for c in 0 ..< width {
