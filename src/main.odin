@@ -27,4 +27,6 @@ main :: proc() {
 	print_matrix(x)
 	print_matrix(y)
 	print_matrix(multiply(x, y))
+	t := .1e-1
+	fmt.println(t)
 }

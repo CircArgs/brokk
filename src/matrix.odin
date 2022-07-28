@@ -156,8 +156,8 @@ zeros :: proc($T: typeid, height, width: int) -> ^Matrix(T) {
 
 filled_const :: proc(height, width: int, value: $T) -> ^Matrix(T) {
 	mat := zeros(T, height, width)
-	for i in 0 ..< mat.height {
-		for j in 0 ..< mat.width {
+	for i in 0 ..< height {
+		for j in 0 ..< width {
 			index := Index{i, j}
 			replace_element(mat, index, value)
 		}
@@ -165,6 +165,15 @@ filled_const :: proc(height, width: int, value: $T) -> ^Matrix(T) {
 
 	return mat
 }
+
+filled_proc :: proc( height, width: int, f: proc(x: $T, index: Index) -> T) -> ^Matrix(T) {
+	mat := zeros(T, height, width)
+	apply(f, mat)
+
+	return mat
+}
+
+filled::proc{filled_proc, filled_const}
 
 apply_on_elements :: proc(f: proc(x: $T, index: Index) -> T, mat: ^Matrix(T)) -> ^Matrix(T) {
 	for i in 0 ..< mat.height {
@@ -177,9 +186,8 @@ apply_on_elements :: proc(f: proc(x: $T, index: Index) -> T, mat: ^Matrix(T)) ->
 }
 
 apply_on_tiles :: proc(
-	f: proc(t: matrix[TILE_HEIGHT, TILE_WIDTH]$T, index: Tile_Index) ->
-		Tmatrix[TILE_HEIGHT, TILE_WIDTH],
-	T,
+	f: proc(t: ^matrix[TILE_HEIGHT, TILE_WIDTH]$T, index: Tile_Index) ->
+		^matrix[TILE_HEIGHT, TILE_WIDTH]T,
 	mat: ^Matrix(T),
 ) -> ^Matrix(T) {
 	for row, i in mat.data {
@@ -193,16 +201,6 @@ apply_on_tiles :: proc(
 
 apply::proc{apply_on_elements, apply_on_tiles}
 
-filled_const :: proc(height, width: int, value: $T) -> ^Matrix(T) {
-	mat := zeros(T, height, width)
-	for r in 0 ..< height {
-		for c in 0 ..< width {
-			replace_element(mat, Index{r, c}, value)
-		}
-	}
-
-	return mat
-}
 
 from_slice :: proc(a: [][]$T) -> ^Matrix(T) {
 	height, width := len(a), len(a[0])
@@ -219,7 +217,7 @@ from_slice :: proc(a: [][]$T) -> ^Matrix(T) {
 new_matrix :: proc {
 	zeros,
 	from_slice,
-	filled,
+	filled_const, filled_proc,
 }
 
 multiply :: proc(left, right: ^Matrix($T)) -> ^Matrix(T) {
