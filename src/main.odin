@@ -3,6 +3,7 @@ import "core:fmt"
 import "core:strings"
 import "core:c/libc"
 import "core:slice"
+
 main :: proc() {
 	a := [][]f32{
 		{1, 2, 3, 4, 5},
@@ -28,5 +29,5 @@ main :: proc() {
 	print_matrix(y)
 	print_matrix(multiply(x, y))
 	t := .1e-1
-	fmt.println(t)
+	fmt.println(type_info_of(typeid_of(type_of(t))))
 }

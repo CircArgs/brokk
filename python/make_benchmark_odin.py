@@ -1,8 +1,10 @@
+import regex as re
 from data import mats
 
 
 def format_matrix(m):
-    return "[][]f32" + str(m).replace('\n', ', ').replace('[', '{').replace(']', '}')
+    return re.sub(r'((?<=\d)\s+(?=\d))|((?<=})\s+(?={))', ', ', '[][]f32'+str(m).replace('[', '{').replace(']', '}'))
+
 
 
 root = "../benchmark/odin/"
@@ -19,28 +21,32 @@ def write_bench(s):
 
 
 data_header = """
-package data
+package benchmark
 // this file generated automatically from python
-import "../src"
-brokk::src
+import brokk "../../src"
 """.strip()
 write_data(data_header)
 
 bench_header = """
 package benchmark
 // this file generated automatically from python
-import "../../src"
-brokk::src
+import "core:fmt"
+import "core:time"
+import "core:testing"
+import brokk "../../src"
 """.strip()
 
 write_bench(bench_header)
 
 
 def format_bench(left, right):
+    name=f'bench_{left}_{right}'
     return f"""
 @(test)
-bench_{left}_{right} :: proc(){{
-   brokk.multiply(data.{left}, data.{right})
+{name}:: proc(^testing.T){{
+   start:=time.now()
+   brokk.multiply({left}, {right})
+   fmt.println("{name}", time.since(start))
 }}
 """
 
@@ -51,7 +57,7 @@ for i, m in enumerate(mats):
     name = f"mat_{i}_"+'_'.join(map(str, m.shape))
     names.append((name, m.shape))
     write_data(name + "_" + "::" + format_matrix(m))
-    write_data(name + "::" + f"brokk.new_matrix({name}_)")
+    write_data(name + ":=" + f"brokk.new_matrix({name}_)")
 
 for left, lshape in names:
     for right, rshape in names:
