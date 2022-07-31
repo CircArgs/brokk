@@ -1,2 +1,1 @@
-# brokk
-fast matrix and vector operations in Odin
+tiled matrix multiplication experiment in Odin
