@@ -6,9 +6,9 @@ use std::time::Instant;
 
 fn main() {
     let mut rng = rand::thread_rng();
-    let left_size = rng.gen_range(0..1000) + 1;
-    let shared_size = rng.gen_range(0..1000) + 1;
-    let right_size = rng.gen_range(0..1000) + 1;
+    let left_size = rng.gen_range(0..1000) + 1001;
+    let shared_size = rng.gen_range(0..1000) + 1001;
+    let right_size = rng.gen_range(0..1000) + 1001;
     let left: DMatrix<f32> =
         DMatrix::from_fn(left_size, shared_size, |_, _| rng.gen_range(0.0..100.0));
     let right: DMatrix<f32> =
