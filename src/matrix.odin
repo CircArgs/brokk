@@ -171,7 +171,7 @@ filled_proc :: proc(height, width: int, $F: proc(index: Index) -> $T) -> ^Matrix
 	wrapped :: proc(x: T, index: Index) -> T {
 		return F(index)
 	}
-	apply(f, mat)
+	apply(wrapped, mat)
 
 	return mat
 }
@@ -233,7 +233,7 @@ new_matrix :: proc {
 
 multiply :: proc(left, right: ^Matrix($T)) -> ^Matrix(T) {
 	assert(left.column_tiles == right.row_tiles)
-	ret := new_matrix(T, left.height, right.width)
+	ret := zeros(T, left.height, right.width)
 	for index_tile_a in 0 ..< left.row_tiles {
 		for index_tile_b in 0 ..< right.column_tiles {
 			for shared_dim in 0 ..< right.row_tiles {

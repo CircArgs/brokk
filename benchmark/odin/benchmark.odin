@@ -8,7 +8,7 @@ random_fill :: proc(index: brokk.Index) -> f32 {
 	return rand.float32_range(0.0, 100.0)
 }
 
-main :: proc(_: ^testing.T) {
+main :: proc() {
 	left_size := rand.int_max(1000) + 1
 	shared_size := rand.int_max(1000) + 1
 	right_size := rand.int_max(1000) + 1
