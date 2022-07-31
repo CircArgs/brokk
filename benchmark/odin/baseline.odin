@@ -21,9 +21,9 @@ mm::proc(l, r: [][]f32)->[][]f32{
    return result
 }
 main :: proc() {
-	left_size := rand.int_max(1000) + 1
-	shared_size := rand.int_max(1000) + 1
-	right_size := rand.int_max(1000) + 1
+	left_size := rand.int_max(1000) + 1001
+	shared_size := rand.int_max(1000) + 1001
+	right_size := rand.int_max(1000) + 1001
 	left := utils.make_2d_slice(left_size, shared_size, f32)
 	right := utils.make_2d_slice(shared_size, right_size, f32)
   for i in 0..<left_size{

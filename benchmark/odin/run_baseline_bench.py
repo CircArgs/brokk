@@ -7,7 +7,7 @@ mappings={'s':1/1000000, 'ms':1/1000, 'µs': 1, 'ns': 1000}
 
 timings=[]
 
-for _ in tqdm(range(100)):
+for _ in tqdm(range(10)):
     out=os.popen('./baseline.bin').read()
     out=out.split(' ')
     timings.append(dict(zip(('left_size', 'shared_size', 'right_size', 'time'), out)))
