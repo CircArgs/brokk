@@ -234,13 +234,12 @@ new_matrix :: proc {
 multiply :: proc(left, right: ^Matrix($T)) -> ^Matrix(T) {
 	assert(left.column_tiles == right.row_tiles)
 	ret := zeros(T, left.height, right.width)
-	for index_tile_a in 0 ..< left.row_tiles {
-		for index_tile_b in 0 ..< right.column_tiles {
-			for shared_dim in 0 ..< right.row_tiles {
-				extract_tile_ptr(ret, Tile_Index{index_tile_a, index_tile_b})^ =
-					extract_tile(ret, Tile_Index{index_tile_a, index_tile_b}) +
-					extract_tile(left, Tile_Index{index_tile_a, shared_dim}) *
-						extract_tile(right, Tile_Index{shared_dim, index_tile_b})
+	for shared_dim in 0 ..< right.row_tiles {
+		right_r := right.data[shared_dim]
+		for index_tile_a in 0 ..< left.row_tiles {
+			left_t := left.data[index_tile_a][shared_dim]
+			for index_tile_b in 0 ..< right.column_tiles {
+				ret.data[index_tile_a][index_tile_b] += left_t * right_r[index_tile_b]
 			}}
 	}
 	return ret
