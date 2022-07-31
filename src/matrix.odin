@@ -166,16 +166,23 @@ filled_const :: proc(height, width: int, value: $T) -> ^Matrix(T) {
 	return mat
 }
 
-filled_proc :: proc( height, width: int, f: proc(x: $T, index: Index) -> T) -> ^Matrix(T) {
+filled_proc :: proc(height, width: int, $F: proc(index: Index) -> $T) -> ^Matrix(T) {
 	mat := zeros(T, height, width)
+	wrapped :: proc(x: T, index: Index) -> T {
+		return F(index)
+	}
 	apply(f, mat)
 
 	return mat
 }
 
-filled::proc{filled_proc, filled_const}
+filled :: proc {
+	filled_proc,
+	filled_const,
+}
 
-apply_on_elements :: proc(f: proc(x: $T, index: Index) -> T, mat: ^Matrix(T)) -> ^Matrix(T) {
+apply_on_elements :: proc(f: proc(x: $T, index: Index) -> T, mat: ^Matrix(T)) ->
+	^Matrix(T) {
 	for i in 0 ..< mat.height {
 		for j in 0 ..< mat.width {
 			index := Index{i, j}
@@ -199,7 +206,10 @@ apply_on_tiles :: proc(
 	return mat
 }
 
-apply::proc{apply_on_elements, apply_on_tiles}
+apply :: proc {
+	apply_on_elements,
+	apply_on_tiles,
+}
 
 
 from_slice :: proc(a: [][]$T) -> ^Matrix(T) {
@@ -217,7 +227,8 @@ from_slice :: proc(a: [][]$T) -> ^Matrix(T) {
 new_matrix :: proc {
 	zeros,
 	from_slice,
-	filled_const, filled_proc,
+	filled_const,
+	filled_proc,
 }
 
 multiply :: proc(left, right: ^Matrix($T)) -> ^Matrix(T) {
