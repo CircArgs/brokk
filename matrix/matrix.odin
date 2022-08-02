@@ -2,7 +2,7 @@ package matmul
 
 import "core:simd"
 
-// Resources:
+// References:
 // https://github.com/flame/how-to-optimize-gemm
 // https://github.com/pytorch/glow/blob/405e632ef138f1d49db9c3181182f7efd837bccc/lib/Backends/CPU/libjit/libjit_matmul.cpp
 // https://github.com/pytorch/glow/blob/405e632ef138f1d49db9c3181182f7efd837bccc/lib/Backends/CPU/libjit/libjit_defs.h
@@ -28,6 +28,11 @@ delete_2d_slice :: proc(slice: [][]$T, allocator := context.allocator) {
 	delete(slice, allocator)
 }
 
+// tile shape
+mc :: 256
+kc :: 128
+nb :: 1000
+
 /// Naive gemm helper to handle oddly-sized matrices.
 matmul_odd :: proc(a, b, c: [][]f32) {
 	for i in 0 ..< len(a) {
@@ -45,57 +50,66 @@ add_u_f32x8 :: #force_inline proc(p: []f32, v: simd.f32x8) {
 	copy(p, temp[:])
 }
 
-/// Compute a 4x16 block of C using a vectorized dot product.
-matmul_dot4x16 :: proc(a, b, c: [][]f32) {
-	ctmp07 := [4]simd.f32x8{}
-	ctmp815 := [4]simd.f32x8{}
-	for p in 0 ..< 16 {
+
+ath::4 // a tile height
+bth::16 // b tile height
+btw::ath
+atw::bth
+// c tiles are ofc 4x4
+cth::ath
+ctw::btw
+
+/// Compute a 4x4 block of C using a vectorized dot product. from slices a: 4x16, b: 16x4
+matmul_dot4x4 :: proc(a, b, c: [][]f32, a_col: int = 0){
+	ctmp07 := [mc]simd.f32x8{}
+	ctmp815 := [mc]simd.f32x8{}
+	for p in 0 ..< bth {
 		a0p := simd.from_array(
 			[8]f32{
-				a[0][p],
-				a[0][p],
-				a[0][p],
-				a[0][p],
-				a[0][p],
-				a[0][p],
-				a[0][p],
-				a[0][p],
+				a[0][a_col+p],
+				a[0][a_col+p],
+				a[0][a_col+p],
+				a[0][a_col+p],
+				a[0][a_col+p],
+				a[0][a_col+p],
+				a[0][a_col+p],
+				a[0][a_col+p],
 			},
 		)
 		a1p := simd.from_array(
 			[8]f32{
-				a[1][p],
-				a[1][p],
-				a[1][p],
-				a[1][p],
-				a[1][p],
-				a[1][p],
-				a[1][p],
-				a[1][p],
+				a[1][a_col+p],
+				a[1][a_col+p],
+				a[1][a_col+p],
+				a[1][a_col+p],
+				a[1][a_col+p],
+				a[1][a_col+p],
+				a[1][a_col+p],
+				a[1][a_col+p],
 			},
 		)
 		a2p := simd.from_array(
 			[8]f32{
-				a[2][p],
-				a[2][p],
-				a[2][p],
-				a[2][p],
-				a[2][p],
-				a[2][p],
-				a[2][p],
-				a[2][p],
+				a[2][a_col+p],
+				a[2][a_col+p],
+				a[2][a_col+p],
+				a[2][a_col+p],
+				a[2][a_col+p],
+				a[2][a_col+p],
+				a[2][a_col+p],
+				a[2][a_col+p],
 			},
 		)
 		a3p := simd.from_array(
 			[8]f32{
-				a[3][p],
-				a[3][p],
-				a[3][p],
-				a[3][p],
-				a[3][p],
-				a[3][p],
-				a[3][p],
-				a[3][p],
+				a[3][a_col+p],
+				a[3][a_col+p],
+				a[3][a_col+p],
+				a[3][a_col+p],
+				a[3][a_col+p],
+				a[3][a_col+p],
+				a[3][a_col+p],
+				a[3][a_col+p],
 			},
 		)
 		bp0p7 := simd.from_slice(simd.f32x8, b[p][:8])
@@ -120,86 +134,63 @@ matmul_dot4x16 :: proc(a, b, c: [][]f32) {
 	add_u_f32x8(c[3][8:], ctmp815[3])
 }
 
-/* /// Compute a portion of C one 4*16 block at a time.  Handle ragged edges with */
-/* /// calls to a slow but general helper. */
-/* void matmul_inner(int m, int n, int k, const float *a, int lda, */
-/*                          const float *b, int ldb, float *c, int ldc) { */
-/*   constexpr int mc = 4 */
-/*   constexpr int nr = 16 */
-/*   // The tiling scheme naturally divides the input matrices into 2 parts each */
-/*   // one tiled section, and three "ragged" edges. */
-/*   // */
-/*   // --------------------    ------- */
-/*   // | A00*B00 | A00*B01|    | A00 |   ------------- */
-/*   // -------------------- += ------- * | B00 | B01 | */
-/*   // | A10*B00 | A10*B01|    | A10 |   ------------- */
-/*   // --------------------    ------- */
-/*   // */
-/*   // We can process this as 4 separate matrix multiplications.  A00*B00 is the */
-/*   // perfectly-tiled portion, which we handly with a 4x16 dot-product kernel. */
-/*   // The ragged edges are (ideally) less critical, so we handle them with a call */
-/*   // to a general matrix-multiplication for odd sizes. */
-/*   for (int j = 0 j < n - nr + 1 j += nr) { */
-/*     for (int i = 0 i < m - mc + 1 i += mc) { */
-/*       matmul_dot4x16(k, &A(i, 0), lda, &B(0, j), ldb, &C(i, j), ldc) */
-/*     } */
-/*   } */
-/*   int i = (m / mc) * mc */
-/*   int j = (n / nr) * nr */
-/*   if (i < m) { */
-/*     matmul_odd(m - i, j, k, &A(i, 0), lda, &B(0, 0), ldb, &C(i, 0), ldc) */
-/*   } */
-/*   if (j < n) { */
-/*     matmul_odd(i, n - j, k, &A(0, 0), lda, &B(0, j), ldb, &C(0, j), ldc) */
-/*   } */
-/*   if (i < m && j < n) { */
-/*     matmul_odd(m - i, n - j, k, &A(i, 0), lda, &B(0, j), ldb, &C(i, j), */
-/*                       ldc) */
-/*   } */
-/* } */
+/// a is a slice a[row:row+4] e.g. 4 rows all columns
+/// a_packed is a slice of contiguous memory the same size as passed the slice of a
+pack_matrix_a::proc(a, a_packed: [][]f32)
+{
+  copy(a_packed, a)
+}
 
-/* /// Tile A into mc * kc blocks, where mc and kc are chosen to approximately fit */
-/* /// the L2 cache on recent Intel processors (e.g., 256 KB for Skylake).  Stream */
-/* /// kc * n panels of B through memory to compute each mc * n block of C. */
-/* /// \p a is an \p m x \p k row-major matrix */
-/* /// \p b is a \p k x \p n row-major matrix */
-/* /// \p c is a \p m x \p n row-major matrix. */
-/* /// \p lda, \p ldb, and \p ldc are the leading dimensions of A, B, and C, */
-/* /// respectively. */
-/* void matmul_outer(int m, int n, int k, const float *a, int lda, */
-/*                          const float *b, int ldb, float *c, int ldc) { */
-/*   // TODO: Generalize these parameters for other cache sizes. */
-/*   constexpr int mc = 256 */
-/*   constexpr int kc = 128 */
-/*   for (int p = 0 p < k p += kc) { */
-/*     int pb = MIN(k - p, kc) */
-/*     for (int i = 0 i < m i += mc) { */
-/*       int ib = MIN(m - i, mc) */
-/*       matmul_inner(ib, n, pb, &A(i, p), lda, &B(p, 0), ldb, &C(i, 0), */
-/*                           ldc) */
-/*     } */
-/*   } */
-/* } */
+/// col is the starting column to pack from b
+// b_packed is len(b) x 4 
+// TODO: can b_packed just be simd since we only ever access these cols of B 1 time (pack once) rather than doing the simd over and over in matmul_dot4x4
+pack_matrix_b::proc(col: int, b, b_packed: [][]f32)
+{
+  for r in b{
+    copy(b_packed[r], b[r][col:col+btw])
+  }
+}
 
+pack_matrix_c::proc(col_c:int, c, c_packed: [][]f32, ){
+  for r in c{
+    copy(c_packed[r], c[r][col_c:col_c+ctw])
+  }
+}
 
-/* } // namespace */
+/// multiplies an a tile and a b tile
+matmul_inner::proc(a_packed, b_packed, c: [][]f32){
+  for i:=0; i<len(a_packed[0])-1; i+=atw{
+    for j:=0; j<len(b_packed)-1; j+=bth{
+      matmul_dot4x4(a_packed, b_packed[j:j+bth], c, i)
+    }
+  }
+}
 
-/* extern "C" { */
+matmul_outer :: proc(a, a_packed, b, b_packed, c: [][]f32, col: ^int) {
+  // we are iterating over A's rows (because packing A is cheaper)
+  // and we only pack b once we have gone through all rows of A and need to change the column of B
+  if first_time{
+    pack_matrix_b(col, b, b_packed)
+  }
+  
+  for i:=0; i<len(a); i+=ath{
+    pack_matrix_a(a[i:i+ath], a_packed)
+    matmul_inner(a_packed, b_packed, c)
+  }
 
-/* /// Performs the matrix multiplication c = a * b, where c, a, and b are */
-/* /// row-major matrices. */
-/* /// \p c is a m x n matrix, so \p cDims = {m, n} */
-/* /// \p a is a m x k matrix, so \p aDims = {m, k} */
-/* /// \p b is a k x n matrix, so \p bDims = {k, n} */
-/* matmul::proc(a, b: [][]f32) { */
-/*   c:=make_2d_slice(len(a), len(b[0]), f32) */
-/*   // Call the matrix multiplication routine with appropriate dimensions and */
-/*   // leading dimensions. The "leading dimension" for a row-major matrix is equal */
-/*   // to the number of columns in the matrix.  For a, this is k for b and c, */
-/*   // this is n. */
-/*   // */
-/*   // The matrix multiplication routine is heavily inspired by: */
-/*   // https://github.com/flame/how-to-optimize-gemm */
-/*   matmul_outer(cDims[0], cDims[1], aDims[1], a, aDims[1], b, bDims[1], c, */
-/*                       cDims[1]) */
-/* } */
+  col^+=4
+}
+
+matmul::proc(a, b: [][]f32){
+  col:=0
+  a_packed:=make_2d_slice(len(a), atw, f32)
+  b_packed:=make_2d_slice(bth, len(b[0]), f32)
+  c_packed:=make_2d_slice(cth, ctw, f32)
+  for i:=0; i<len(c)-1; i+=cth{//iterate rows of c
+    for j:=0; j<len(c[0])-1; j+=ctw{//iterate cols of c
+      pack_matrix_c(j, c[i:i+cth], c_packed)
+      matmul_outer(a, a_packed, b, b_packed, c_packed, &col)     
+    }
+  }
+  //TODO: unload c_packed into c
+}
