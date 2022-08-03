@@ -19,6 +19,6 @@
   "enable_snippets": true,
   "formatter": {
     "tabs": true,
-    "characters": 90
+    "characters": 180
   }
 }
