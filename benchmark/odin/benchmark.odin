@@ -9,9 +9,9 @@ random_fill :: proc(index: brokk.Index) -> f32 {
 }
 
 main :: proc() {
-	left_size := 1600 //rand.int_max(1000) + 1001
-	shared_size := 1600 //rand.int_max(1000) + 1001
-	right_size := 1600 //rand.int_max(1000) + 1001
+	left_size := 1024 //rand.int_max(1000) + 1001
+	shared_size := 1024 //rand.int_max(1000) + 1001
+	right_size := 1024 //rand.int_max(1000) + 1001
 	left := brokk.filled_proc(left_size, shared_size, random_fill)
 	right := brokk.filled_proc(shared_size, right_size, random_fill)
 	start := time.now()
