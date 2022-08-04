@@ -45,7 +45,6 @@ add_u_f32x8 :: #force_inline proc(p: []f32, v: simd.f32x8) {
 
 
 /// Compute a 4x16 block of C using a vectorized dot product. from slices a: 4x16, b: 16x16
-
 matmul_dot4x16 :: proc(a, b, c: [][]f32, a_col: int = 0) {
 	ctmp07 := [cth]simd.f32x8{}
 	ctmp815 := [cth]simd.f32x8{}
@@ -74,7 +73,7 @@ matmul_dot4x16 :: proc(a, b, c: [][]f32, a_col: int = 0) {
 	add_u_f32x8(c[1][8:], ctmp815[1])
 	add_u_f32x8(c[2][8:], ctmp815[2])
 	add_u_f32x8(c[3][8:], ctmp815[3])
-	fmt.println(a, "\n\n", b, "\n\n", c, "\n\n=========================================================\n\n\n")
+	/* fmt.println(a, "\n\n", b, "\n\n", c, "\n\n=========================================================\n\n\n") */
 }
 
 /// a is a slice a[row:row+4] e.g. 4 rows all columns
@@ -106,7 +105,7 @@ unpack_matrix_c :: proc(col_c: int, c, c_packed: [][]f32) {
 /// loops over tiles of the packed a and b to make a complete tile of c
 matmul_inner :: proc(a_packed, b_packed, c_packed: [][]f32) {
 	for i in 0 ..< len(b_packed) / bth {
-		j := bth
+		j := i * bth
 		matmul_dot4x16(a_packed, b_packed[j:j + bth], c_packed, j)
 	}
 }
@@ -135,7 +134,6 @@ matmul :: proc(a, b: [][]f32) -> (c: [][]f32) {
 			pack_matrix_a(a[i:i + ath], a_packed)
 			pack_matrix_c(j, c[i:i + cth], c_packed)
 			matmul_inner(a_packed, b_packed, c_packed)
-			assert(false)
 			unpack_matrix_c(j, c[i:i + cth], c_packed)
 		}
 	}
