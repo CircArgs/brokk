@@ -109,6 +109,9 @@ matmul_inner :: proc(a_packed, b_packed, c_packed: [][]f32) {
 		matmul_dot4x16(a_packed, b_packed[j:j + bth], c_packed, j)
 	}
 }
+mc :: 256
+kc :: 128
+nb :: 1000
 
 ath :: 4 // a tile height
 bth :: 16 // b tile height
@@ -118,11 +121,11 @@ atw :: bth
 cth :: ath
 ctw :: btw
 
-matmul :: proc(a, b: [][]f32) -> (c: [][]f32) {
+matmul :: proc(a, b, c: [][]f32) {
+	assert(len(c) == len(a) && len(b[0]) == len(c[0]))
 	col := 0
-	c = make_2d_slice(len(a), len(b[0]), f32)
-	a_packed := make_2d_slice(ath, len(a[0]), f32)
-	b_packed := make_2d_slice(len(b), btw, f32)
+	a_packed := make_2d_slice(len(c), len(c[0]), f32)
+	b_packed := make_2d_slice(kc, nb, f32)
 	c_packed := make_2d_slice(cth, ctw, f32)
 	for j := 0; j < len(c[0]) - 1; j += ctw { //iterate cols of c
 		// to make a new column of tiles of c we need a new column of b tiles 
@@ -138,5 +141,4 @@ matmul :: proc(a, b: [][]f32) -> (c: [][]f32) {
 		}
 	}
 
-	return
 }

@@ -1,28 +1,32 @@
 import "core:mem"
 
-index::proc(a: [][]f32, i, j: int)->f32{ return a[(j)*lda + (i)]}
+#define A(i, j) a[(j)*lda + (i)]
+#define B(i, j) b[(j)*ldb + (i)]
+#define C(i, j) c[(j)*ldc + (i)]
 
 /* Block sizes */
-mc:: 256
-kc:: 128
-nb:: 1000
+#define mc 256
+#define kc 128
+#define nb 1000
 
+#define min(i, j) ((i) < (j) ? (i) : (j))
 
     /* Routine for computing C = A * B + C */
 
-MY_MMult::proc(m, n, k:int, a, b, c:[]f32){
+    MY_MMult(int m, int n, int k, double * a, int lda, double * b, int ldb, double * c, int ldc){int i, p, pb, ib;
 
 /* This time, we compute a mc x n block of C by a call to the InnerKernel */
-for p:= 0; p < k; p += kc {
-  pb := min(k - p, kc)
-  for i := 0; i < m; i += mc {
-    ib := min(m - i, mc)
-    InnerKernel(ib, n, pb, &index(i, p), &index(p, 0), &index(i, 0), i == 0);
+
+for (p = 0; p < k; p += kc) {
+  pb = min(k - p, kc);
+  for (i = 0; i < m; i += mc) {
+    ib = min(m - i, mc);
+    InnerKernel(ib, n, pb, &A(i, p), lda, &B(p, 0), ldb, &C(i, 0), ldc, i == 0);
   }
 }
 }
 
-InnerKernel:proc(m, n, k: int, ^, int lda, double *b, int ldb,
+void InnerKernel(int m, int n, int k, double *a, int lda, double *b, int ldb,
                  double *c, int ldc, int first_time) {
   int i, j;
   double packedA[m * k];

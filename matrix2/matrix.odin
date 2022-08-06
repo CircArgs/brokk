@@ -4,10 +4,8 @@ import "core:simd"
 import "core:fmt"
 // References:
 // https://github.com/flame/how-to-optimize-gemm
-// https://github.com/pytorch/glow/blob/405e632ef138f1d49db9c3181182f7efd837bccc/lib/Backends/CPU/libjit/libjit_matmul.cpp
-// https://github.com/pytorch/glow/blob/405e632ef138f1d49db9c3181182f7efd837bccc/lib/Backends/CPU/libjit/libjit_defs.h
+// https://github.com/flame/blislab/blob/master/tutorial.pdf
 
-//Thanks to Phil H - odin discord
 make_2d_slice :: proc(y, x: int, $T: typeid, allocator := context.allocator) -> (res: [][]T) {
 	assert(x > 0 && y > 0)
 	context.allocator = allocator
@@ -25,157 +23,114 @@ delete_2d_slice :: proc(slice: [][]$T, allocator := context.allocator) {
 	delete(slice[0], allocator)
 	delete(slice, allocator)
 }
-
 /* Block sizes */
 mc :: 256
 kc :: 128
 nb :: 1000
 
+// column major matrix
+Matrix :: struct {
+	n_rows, n_cols: int,
+	data:           [][]f32,
+}
 
+new_matrix :: proc(data: [][]f32) -> ^Matrix {
+	ret := new(Matrix)
+	ret.n_rows = len(data)
+	ret.n_cols = len(data[0])
+	ret.data = data
+	return ret
+}
 /* Routine for computing C = A * B + C */
 
-matmul :: proc(a, b, c: [][]f32) {
+matmul :: proc(a, b, c: ^Matrix) {
+	assert(a.n_cols == b.n_rows && c.n_rows == a.n_rows && c.n_cols == b.n_cols)
+	m, n, k := a.n_rows, b.n_cols, a.n_cols
+	outer_kernel(m, n, k, a.data, b.data, c.data)
+}
 
-	pb, ib: int
-	/* This time, we compute a mc x n block of C by a call to the InnerKernel */
-  // mc 
-	for p := 0; p < k; p += kc {
-		pb = min(k - p, kc)
-		for i := 0; i < m; i += mc {
-			ib = min(m - i, mc)
-			inner_kernel(ib, n, pb, a[i], &B(p, 0), &C(i, 0), i == 0)
+packed_t :: distinct [kc][4]f32
+outer_kernel :: proc(m, n, k: int, a, b, c: [][]f32) {
+	// This time, we compute a mc x n block of C by a call to the InnerKernel
+	packed_a := make([]packed_t, mc / 4)
+	packed_b := make([]packed_t, len(b) / 4)
+
+	for p := 0; p < k - 1; p += kc { // loop over a cols/b rows => c cols
+		for i := 0; i < m - 1; i += mc { // c rows
+			inner_kernel(i, n, p, a[p:p + kc], b, c, &packed_a, &packed_b, i == 0)
 		}
 	}
 }
 
-inner_kernel :: proc(m, n, k: int, a, b, c: [][]f32, first_time: bool) {
-	packed_a := [m][k]f32{}
-	packed_b := [kc][nb]f32{}
-
-	for j := 0; j < n; j += 4 { /* Loop over the columns of C, unrolled by 4 */
+inner_kernel :: proc(m, n, k: int, a, b, c: [][]f32, packed_a, packed_b: ^[]packed_t, first_time: bool) {
+	for bpc, j in packed_b { /* Loop over the columns of C, unrolled by 4 */
+		jl := j * 4
 		if first_time {
-			pack_matrix_b(k, &B(0, j), ldb, &packedB[j * k])
+			pack_matrix_b(k, b[jl:jl + 4], &bpc)
 		}
-		for i := 0; i < m; i += 4 { /* Loop over the rows of C */
-			/* Update C( i,j ), C( i,j+1 ), C( i,j+2 ), and C( i,j+3 ) in
-	 one routine (four inner products) */
+		for apr, i in packed_a { /* Loop over the rows of C */
+			/* Update C( i,j ), C( i,j+1 ), C( i,j+2 ), and C( i,j+3 ) in one routine (four inner products) */
 			if j == 0 {
-				pack_matrix_a(k, &A(i, 0), lda, &packedA[i * k])
+				pack_matrix_a(k, a, &apr)
 			}
-			AddDot4x4(k, &packedA[i * k], 4, &packedB[j * k], k, &C(i, j), ldc)
+			add_dot_4x4(k, &apr, &bpc, c[jl:jl + 4])
 		}
 	}
 }
 
-pack_matrix_a::proc(k: int, a, a_to: [][]f32){
-
-  for( j:=0; j<k; j++){  /* loop over columns of A */
-    f32 
-      *a_ij_pntr = &A( 0, j );
-
-    *a_to     = *a_ij_pntr;
-    *(a_to+1) = *(a_ij_pntr+1);
-    *(a_to+2) = *(a_ij_pntr+2);
-    *(a_to+3) = *(a_ij_pntr+3);
-
-    a_to += 4;
-  }
+pack_matrix_b :: proc(k: int, b: [][]f32, b_to: ^packed_t) {
+	b_i0_pntr := b[0][k:]
+	b_i1_pntr := b[1][k:]
+	b_i2_pntr := b[2][k:]
+	b_i3_pntr := b[3][k:]
+	for b_to_row, i in b_to {
+		b_to_row[0] = b_i0_pntr[i]
+		b_to_row[1] = b_i1_pntr[i]
+		b_to_row[2] = b_i2_pntr[i]
+		b_to_row[3] = b_i3_pntr[i]
+	}
 }
 
-/* void pack_matrix_b( int k, f32 *b, int ldb, f32 *b_to ) */
-/* { */
-/*   int i; */
-/*   f32  */
-/*     *b_i0_pntr = &B( 0, 0 ), *b_i1_pntr = &B( 0, 1 ), */
-/*     *b_i2_pntr = &B( 0, 2 ), *b_i3_pntr = &B( 0, 3 ); */
+pack_matrix_a :: proc(k: int, a: [][]f32, a_to: ^packed_t) {
+	for a_to_col, j in a_to {
+		a_to_col[0] = a[j][k + 0]
+		a_to_col[1] = a[j][k + 1]
+		a_to_col[2] = a[j][k + 2]
+		a_to_col[3] = a[j][k + 3]
+	}
+}
 
-/*   for( i=0; i<k; i++){  /* loop over rows of B */ */
-/*     *b_to++ = *b_i0_pntr++; */
-/*     *b_to++ = *b_i1_pntr++; */
-/*     *b_to++ = *b_i2_pntr++; */
-/*     *b_to++ = *b_i3_pntr++; */
-/*   } */
-/* } */
+add_dot_4x4 :: proc(k: int, a, b: ^packed_t, c: [][]f32) {
+	c0 := simd.f32x4{} // 4x4 row 1
+	c1 := simd.f32x4{} // 4x4 row 2
+	c2 := simd.f32x4{} // ...
+	c3 := simd.f32x4{}
+	for i in 0 ..< kc {
+		ac0 := simd.f32x4{a[i][0], a[i][0], a[i][0], a[i][0]}
+		ac1 := simd.f32x4{a[i][1], a[i][1], a[i][1], a[i][1]}
+		ac2 := simd.f32x4{a[i][2], a[i][2], a[i][2], a[i][2]}
+		ac3 := simd.f32x4{a[i][3], a[i][3], a[i][3], a[i][3]}
+		br := simd.from_array(b[i])
+		c0 = simd.fma(ac0, br, c0)
+		c1 = simd.fma(ac1, br, c0)
+		c2 = simd.fma(ac2, br, c0)
+		c3 = simd.fma(ac3, br, c0)
+	}
+	c[0][0] = simd.extract(c0, 0)
+	c[1][0] = simd.extract(c0, 1)
+	c[2][0] = simd.extract(c0, 2)
+	c[3][0] = simd.extract(c0, 3)
+	c[0][1] = simd.extract(c1, 0)
+	c[1][1] = simd.extract(c1, 1)
+	c[2][1] = simd.extract(c1, 2)
+	c[3][1] = simd.extract(c1, 3)
+	c[0][2] = simd.extract(c2, 0)
+	c[1][2] = simd.extract(c2, 1)
+	c[2][2] = simd.extract(c2, 2)
+	c[3][2] = simd.extract(c2, 3)
+	c[0][3] = simd.extract(c3, 0)
+	c[1][3] = simd.extract(c3, 1)
+	c[2][3] = simd.extract(c3, 2)
+	c[3][3] = simd.extract(c3, 3)
 
-/* #include <mmintrin.h> */
-/* #include <xmmintrin.h>  // SSE */
-/* #include <pmmintrin.h>  // SSE2 */
-/* #include <emmintrin.h>  // SSE3 */
-
-/* typedef union */
-/* { */
-/*   __m128d v; */
-/*   f32 d[2]; */
-/* } v2df_t; */
-
-/* void AddDot4x4( int k, f32 *a, int lda,  f32 *b, int ldb, f32 *c, int ldc ) */
-/* { */
-/*   /* So, this routine computes a 4x4 block of matrix A */
-/*            C( 0, 0 ), C( 0, 1 ), C( 0, 2 ), C( 0, 3 ).   */
-/*            C( 1, 0 ), C( 1, 1 ), C( 1, 2 ), C( 1, 3 ).   */
-/*            C( 2, 0 ), C( 2, 1 ), C( 2, 2 ), C( 2, 3 ).   */
-/*            C( 3, 0 ), C( 3, 1 ), C( 3, 2 ), C( 3, 3 ).   */
-/*      Notice that this routine is called with c = C( i, j ) in the */
-/*      previous routine, so these are actually the elements  */
-/*            C( i  , j ), C( i  , j+1 ), C( i  , j+2 ), C( i  , j+3 )  */
-/*            C( i+1, j ), C( i+1, j+1 ), C( i+1, j+2 ), C( i+1, j+3 )  */
-/*            C( i+2, j ), C( i+2, j+1 ), C( i+2, j+2 ), C( i+2, j+3 )  */
-/*            C( i+3, j ), C( i+3, j+1 ), C( i+3, j+2 ), C( i+3, j+3 )  */
-/* 	   */
-/*      in the original matrix C  */
-/*      And now we use vector registers and instructions */ */
-
-/*   int p; */
-/*   v2df_t */
-/*     c_00_c_10_vreg,    c_01_c_11_vreg,    c_02_c_12_vreg,    c_03_c_13_vreg, */
-/*     c_20_c_30_vreg,    c_21_c_31_vreg,    c_22_c_32_vreg,    c_23_c_33_vreg, */
-/*     a_0p_a_1p_vreg, */
-/*     a_2p_a_3p_vreg, */
-/*     b_p0_vreg, b_p1_vreg, b_p2_vreg, b_p3_vreg;  */
-
-/*   c_00_c_10_vreg.v = _mm_setzero_pd();    */
-/*   c_01_c_11_vreg.v = _mm_setzero_pd(); */
-/*   c_02_c_12_vreg.v = _mm_setzero_pd();  */
-/*   c_03_c_13_vreg.v = _mm_setzero_pd();  */
-/*   c_20_c_30_vreg.v = _mm_setzero_pd();    */
-/*   c_21_c_31_vreg.v = _mm_setzero_pd();   */
-/*   c_22_c_32_vreg.v = _mm_setzero_pd();    */
-/*   c_23_c_33_vreg.v = _mm_setzero_pd();  */
-
-/*   for ( p=0; p<k; p++ ){ */
-/*     a_0p_a_1p_vreg.v = _mm_load_pd( (f32 *) a ); */
-/*     a_2p_a_3p_vreg.v = _mm_load_pd( (f32 *) ( a+2 ) ); */
-/*     a += 4; */
-
-/*     b_p0_vreg.v = _mm_loaddup_pd( (f32 *) b );       /* load and duplicate */ */
-/*     b_p1_vreg.v = _mm_loaddup_pd( (f32 *) (b+1) );   /* load and duplicate */ */
-/*     b_p2_vreg.v = _mm_loaddup_pd( (f32 *) (b+2) );   /* load and duplicate */ */
-/*     b_p3_vreg.v = _mm_loaddup_pd( (f32 *) (b+3) );   /* load and duplicate */ */
-
-/*     b += 4; */
-
-/*     /* First row and second rows */ */
-/*     c_00_c_10_vreg.v += a_0p_a_1p_vreg.v * b_p0_vreg.v; */
-/*     c_01_c_11_vreg.v += a_0p_a_1p_vreg.v * b_p1_vreg.v; */
-/*     c_02_c_12_vreg.v += a_0p_a_1p_vreg.v * b_p2_vreg.v; */
-/*     c_03_c_13_vreg.v += a_0p_a_1p_vreg.v * b_p3_vreg.v; */
-
-/*     /* Third and fourth rows */ */
-/*     c_20_c_30_vreg.v += a_2p_a_3p_vreg.v * b_p0_vreg.v; */
-/*     c_21_c_31_vreg.v += a_2p_a_3p_vreg.v * b_p1_vreg.v; */
-/*     c_22_c_32_vreg.v += a_2p_a_3p_vreg.v * b_p2_vreg.v; */
-/*     c_23_c_33_vreg.v += a_2p_a_3p_vreg.v * b_p3_vreg.v; */
-/*   } */
-
-/*   C( 0, 0 ) += c_00_c_10_vreg.d[0];  C( 0, 1 ) += c_01_c_11_vreg.d[0];   */
-/*   C( 0, 2 ) += c_02_c_12_vreg.d[0];  C( 0, 3 ) += c_03_c_13_vreg.d[0];  */
-
-/*   C( 1, 0 ) += c_00_c_10_vreg.d[1];  C( 1, 1 ) += c_01_c_11_vreg.d[1];   */
-/*   C( 1, 2 ) += c_02_c_12_vreg.d[1];  C( 1, 3 ) += c_03_c_13_vreg.d[1];  */
-
-/*   C( 2, 0 ) += c_20_c_30_vreg.d[0];  C( 2, 1 ) += c_21_c_31_vreg.d[0];   */
-/*   C( 2, 2 ) += c_22_c_32_vreg.d[0];  C( 2, 3 ) += c_23_c_33_vreg.d[0];  */
-
-/*   C( 3, 0 ) += c_20_c_30_vreg.d[1];  C( 3, 1 ) += c_21_c_31_vreg.d[1];   */
-/*   C( 3, 2 ) += c_22_c_32_vreg.d[1];  C( 3, 3 ) += c_23_c_33_vreg.d[1];  */
-/* } */
+}

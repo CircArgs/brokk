@@ -31,8 +31,9 @@ main :: proc() {
 	left_size := 1024
 	shared_size := 1024
 	right_size := 1024
-	a := make_2d_slice(left_size, shared_size, f32)
-	b := make_2d_slice(shared_size, right_size, f32)
+	a := make_2d_slice(shared_size, left_size, f32)
+	b := make_2d_slice(right_size, shared_size, f32)
+	c := make_2d_slice(right_size, left_size, f32)
 	/* a := [][]f32{ */
 	/* 	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, */
 	/* 	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, */
@@ -93,20 +94,19 @@ main :: proc() {
 	/* fmt.println(a, "\n\n", b, "\n\n", c) */
 
 
-	/* c := make_2d_slice(left_size, right_size, f32) */
-	for i in 0 ..< left_size {
-		for j in 0 ..< shared_size {
+	for i in 0 ..< shared_size {
+		for j in 0 ..< left_size {
 			a[i][j] = random_fill()
 		}
 	}
-	for i in 0 ..< shared_size {
-		for j in 0 ..< right_size {
+	for i in 0 ..< right_size {
+		for j in 0 ..< shared_size {
 			b[i][j] = random_fill()
 		}
 	}
-
+	ma, mb, mc := new_matrix(a), new_matrix(b), new_matrix(c)
 	start := time.now()
-	c := matmul(a, b)
+	matmul(ma, mb, mc)
 	end := time.since(start)
 	fmt.println(left_size, shared_size, right_size, end)
 	/* fmt.println(a, "\n\n", b, "\n\n", c, "\n\n", len(c), len(c[0])) */
